@@ -255,8 +255,6 @@ void initGameState(GameState *gameState) {
     gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelPlaneEntity(100.0f, make_float3(0, -3, 0), 0, gameState->randomStartUpID);
     gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelSquareEntity(1, 1, make_float3(0, 2, 0), 1.0f / 1.0f, gameState->randomStartUpID);
     
-    
-    
     assert(BLOCK_TYPE_COUNT < 255);
     gameState->camera.fov = 60;
     gameState->camera.T.pos = make_float3(0, 0, -10);
@@ -277,6 +275,10 @@ void initGameState(GameState *gameState) {
     
     initPlayer(&gameState->player, gameState->randomStartUpID);
     gameState->player.T.pos = gameState->camera.T.pos;
+
+    gameState->physicsWorld.positionCorrecting = true;
+    gameState->physicsWorld.warmStarting = true;
+    gameState->physicsWorld.accumulateImpulses = true;
 
     loadWavFile(&gameState->cardFlipSound[0], "./sounds/cardFlip.wav", &gameState->audioSpec);
     loadWavFile(&gameState->cardFlipSound[1], "./sounds/cardFlip1.wav", &gameState->audioSpec);

@@ -165,9 +165,12 @@ void updateGame(GameState *gameState) {
 
             if(e->sleepTimer >= PHYSICS_SLEEP_TIME_THRESHOLD) {
                 //NOTE: Object is asleep now
-                e->asleep = true;
+                // e->asleep = true;
             }
         }
+
+        //NOTE: Calculate constant values and conditions the iteration solver should use
+        prestepAllArbiters(&gameState->physicsWorld, 1.0f / dt);
 
         //NOTE: Apply impluses
         updateAllArbiters(&gameState->physicsWorld);
@@ -211,4 +214,11 @@ void updateGame(GameState *gameState) {
 
     TimeOfDayValues timeOfDayValues = getTimeOfDayValues(gameState);
     rendererFinish(gameState->renderer, screenT, cameraT, screenGuiT, textGuiT, lookingAxis, cameraTWithoutTranslation, timeOfDayValues, gameState->perlinTestTexture.handle);
+
+    if(gameState->mouseLeftBtn == MOUSE_BUTTON_PRESSED) {
+        float2 p = scale_float2(3.0f, getPlaneSize(gameState->camera.fov, 1.0f / gameState->aspectRatio_y_over_x));
+        float x = lerp(-p.x, p.x, make_lerpTValue(gameState->mouseP_01.x));
+        float y = lerp(-p.y, p.y, make_lerpTValue(1.0f + gameState->mouseP_01.y));
+        gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelCircleEntity(1, make_float3(x, y, 0), 1.0f / 1.0f, gameState->randomStartUpID);
+    }
 }

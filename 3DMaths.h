@@ -45,6 +45,15 @@ float MathMaxf(float a, float b) {
 
 }
 
+float MathMinf(float a, float b) {
+	if(b > a) {
+		return a;
+	} else {
+		return b;
+	}
+
+}
+
 float signOf(float val) {
     return (val > 0) - (val < 0);
 }
@@ -725,6 +734,16 @@ static float16 make_ortho_matrix_origin_center(float planeWidth, float planeHeig
 	    }};
 
 	return result;
+}
+
+float2 getPlaneSize(float FOV_degrees, float aspectRatio_x_over_y) {
+	float FOV_radians = (FOV_degrees*PI32) / 180.0f;
+
+	//NOTE: Get the size of the plane the game world will be projected on.
+	float t = tan(FOV_radians); //plane's height
+	float r = t*aspectRatio_x_over_y; //plane's width
+
+	return make_float2(r, t);
 }
 
 static float16 make_perspective_matrix_origin_center(float FOV_degrees, float nearClip, float farClip, float aspectRatio_x_over_y) {

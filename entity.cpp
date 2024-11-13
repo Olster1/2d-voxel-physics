@@ -90,8 +90,9 @@ struct VoxelEntity {
     float3 ddPForFrame;
 
     float inverseMass;
-    float4 inverseMomentOfInteria;
+    float inverseMomentOfInteria;
     float coefficientOfRestitution;
+    float friction;
 
     //NOTE: Voxel data
     float2 worldBounds;
@@ -195,6 +196,10 @@ CollisionPoint doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, Voxel
                 result.y = idY;
                 result.point = lerp_float2(worldP, voxelWorldP, 0.5f);
                 result.normal = normalize_float2(diff);
+                result.seperation = sqrt(distanceSqr) - VOXEL_SIZE_IN_METERS;
+                result.Pn = 0;
+                result.inverseMassNormal = 0;
+                result.velocityBias = 0;
             }
         }
     }
@@ -311,7 +316,8 @@ VoxelEntity createVoxelCircleEntity(float radius, float3 pos, float inverseMass,
 
     result.sleepTimer = 0;
     result.asleep = false;
-
+    
+    result.friction = 0.2f;
     result.T.pos = pos;
     result.inverseMass = inverseMass;
     result.coefficientOfRestitution = 0.8f;
@@ -356,11 +362,12 @@ VoxelEntity createVoxelPlaneEntity(float length, float3 pos, float inverseMass, 
     result.T.pos = pos;
     result.inverseMass = inverseMass;
     result.coefficientOfRestitution = 0;
+    result.friction = 0.2f;
 
     result.sleepTimer = 0;
     result.asleep = false;
 
-    result.worldBounds = make_float2(length, VOXEL_SIZE_IN_METERS);
+    result.worldBounds = make_float2(length, 30*VOXEL_SIZE_IN_METERS);
 
     result.stride = result.worldBounds.x*VOXELS_PER_METER;
     result.pitch = result.worldBounds.y*VOXELS_PER_METER;
@@ -375,6 +382,8 @@ VoxelEntity createVoxelPlaneEntity(float length, float3 pos, float inverseMass, 
         }
     }
 
+    classifyPhysicsShape(&result);
+
     return result;
 }
 
@@ -386,6 +395,7 @@ VoxelEntity createVoxelSquareEntity(float w, float h, float3 pos, float inverseM
     result.T.pos = pos;
     result.inverseMass = inverseMass;
     result.coefficientOfRestitution = 0.9f;
+    result.friction = 0.2f;
 
     result.sleepTimer = 0;
     result.asleep = false;
@@ -404,6 +414,8 @@ VoxelEntity createVoxelSquareEntity(float w, float h, float3 pos, float inverseM
             result.data[y*result.stride + x] = VOXEL_OCCUPIED;
         }
     }
+
+    classifyPhysicsShape(&result);
 
     return result;
 }
