@@ -151,6 +151,8 @@ struct GameState {
     VoxelEntity voxelEntities[64];
     float physicsAccum;
 
+    VoxelEntity *grabbed;
+
     uint64_t blockFlags[BLOCK_TYPE_COUNT];
 
     SkeletalModel foxModel;
@@ -253,7 +255,8 @@ void initGameState(GameState *gameState) {
     gameState->randomStartUpID = rand();
     gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelCircleEntity(1.0f, make_float3(0, 0, 0), 1.0f, gameState->randomStartUpID);
     gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelPlaneEntity(100.0f, make_float3(0, -3, 0), 0, gameState->randomStartUpID);
-    gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelSquareEntity(1, 1, make_float3(0, 2, 0), 1.0f / 1.0f, gameState->randomStartUpID);
+    gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelSquareEntity(1, 1, make_float3(0, 2, 0), 1.0f, gameState->randomStartUpID);
+    // gameState->grabbed = &gameState->voxelEntities[2]; 
     
     assert(BLOCK_TYPE_COUNT < 255);
     gameState->camera.fov = 60;
@@ -268,6 +271,7 @@ void initGameState(GameState *gameState) {
     createBlockFlags(gameState);
     memset(gameState->chunks, 0, arrayCount(gameState->chunks)*sizeof(Chunk *));
 
+    
     
     gameState->entitiesToAddCount = 0;
 
@@ -286,7 +290,7 @@ void initGameState(GameState *gameState) {
     loadWavFile(&gameState->blockFinishSound, "./sounds/blockFinish.wav", &gameState->audioSpec);
     loadWavFile(&gameState->fallBigSound, "./sounds/fallbig.wav", &gameState->audioSpec);
     loadWavFile(&gameState->pickupSound, "./sounds/pop.wav", &gameState->audioSpec);
-    loadWavFile(&gameState->bgMusic, "./sounds/sweeden.wav", &gameState->audioSpec);
+    // loadWavFile(&gameState->bgMusic, "./sounds/sweeden.wav", &gameState->audioSpec);
 
     gameState->lastMouseP = gameState->mouseP_screenSpace;
 

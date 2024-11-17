@@ -754,7 +754,7 @@ void prepareChunkRender(ChunkModelBuffer *model, Shader *shader, uint32_t textur
    
 }
 
-void drawModels(ModelBuffer *model, Shader *shader, uint32_t textureId, int instanceCount, float16 projectionTransform, float16 modelViewTransform, float3 lookingAxis, bool underWater, TimeOfDayValues timeOfDayValues, uint32_t flags = 0, int skinningTextureId = -1) {
+void drawModels(ModelBuffer *model, Shader *shader, uint32_t textureId, int instanceCount, float16 projectionTransform, float16 modelViewTransform, float3 lookingAxis, bool underWater, TimeOfDayValues timeOfDayValues, uint32_t flags = 0, int skinningTextureId = -1, GLenum primitive = GL_TRIANGLES) {
     // printf("%d\n", instanceCount);
     glUseProgram(shader->handle);
     renderCheckError();
@@ -800,7 +800,7 @@ void drawModels(ModelBuffer *model, Shader *shader, uint32_t textureId, int inst
         renderCheckError(); 
     }
 
-    glDrawElementsInstanced(GL_TRIANGLES, model->indexCount, GL_UNSIGNED_INT, 0, instanceCount); 
+    glDrawElementsInstanced(primitive, model->indexCount, GL_UNSIGNED_INT, 0, instanceCount); 
     renderCheckError();
     
     glBindVertexArray(0);
@@ -879,5 +879,13 @@ void rendererFinish(Renderer *renderer, float16 projectionTransform, float16 mod
         drawModels(&renderer->quadModel, &renderer->fontTextureShader, renderer->fontAtlasTexture, renderer->glyphCount, textScreenTransform, float16_identity(), lookingAxis, renderer->underWater, timeOfDay);
 
         renderer->glyphCount = 0;
+    }
+
+    if(renderer->lineCount > 0) {
+        //NOTE: Draw circle oultines
+        updateInstanceData(renderer->lineModel.instanceBufferhandle, renderer->lineData, renderer->lineCount*sizeof(InstanceDataWithRotation));
+        drawModels(&renderer->lineModel, &renderer->lineShader, renderer->fontAtlasTexture, renderer->lineCount, projectionTransform, modelViewTransform, lookingAxis, renderer->underWater, timeOfDay, 0, -1, GL_LINES);
+
+        renderer->lineCount = 0;
     }
 }

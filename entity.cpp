@@ -85,12 +85,17 @@ struct VoxelEntity {
     EntityID id;
     TransformX T;
 
+    bool inBounds;
+
     //NOTE: Physics details
     float3 dP;
     float3 ddPForFrame;
 
+    float dA; //NOTE: Positive is clockwise
+    float ddAForFrame;//NOTE: Torque for frame
+
     float inverseMass;
-    float inverseMomentOfInteria;
+    float invI;
     float coefficientOfRestitution;
     float friction;
 
@@ -100,6 +105,9 @@ struct VoxelEntity {
     float sleepTimer;
     bool asleep;
 
+    float2 *corners;
+
+    int occupiedCount;
     u8 *data;
     int stride;
     int pitch;
@@ -119,7 +127,6 @@ bool isVoxelOccupied(VoxelEntity *e, int x, int y) {
     return result;
 }
 
-
 float2 getVoxelPositionInModelSpace(float2 pos) {
     pos.x *= VOXEL_SIZE_IN_METERS;
     pos.y *= VOXEL_SIZE_IN_METERS;
@@ -130,21 +137,37 @@ float2 getVoxelPositionInModelSpace(float2 pos) {
     return pos;
 }
 
+
+float2 getVoxelPositionInModelSpaceFromCenter(VoxelEntity *e, float2 pos) {
+    pos = getVoxelPositionInModelSpace(pos);
+    float2 center = make_float2(0.5f*e->worldBounds.x, 0.5f*e->worldBounds.y);
+    pos = minus_float2(pos, center);
+
+    return pos;
+}
+
+
 float3 voxelToWorldP(VoxelEntity *e, int x, int y) {
-    float3 center = make_float3(0.5f*e->worldBounds.x, 0.5f*e->worldBounds.y, 0);
-    const float3 worldP = e->T.pos;
-    float2 modelSpace = getVoxelPositionInModelSpace(make_float2(x, y));
-    float3 diffFromCenter = minus_float3(make_float3(modelSpace.x, modelSpace.y, 0), center);
-    float3 p = plus_float3(worldP, diffFromCenter);
+    float2 modelSpace = getVoxelPositionInModelSpaceFromCenter(e, make_float2(x, y));
+
+    //NOTE: Get the bind pose position to model position
+    float x1 = cos(e->T.rotation.z);
+    float x2 = sin(e->T.rotation.z); //NOTE: Could avoid this using the Pythagorean identity
+
+    float2 xAxis = make_float2(x1, x2);
+    float2 yAxis = perp2d(xAxis);
+
+    //NOTE: Transform from bind position to model position 
+    modelSpace = plus_float2(scale_float2(modelSpace.x, xAxis), scale_float2(modelSpace.y, yAxis));
+    
+    float3 p = plus_float3(e->T.pos, make_float3(modelSpace.x, modelSpace.y, 0));
 
     return p;
 }
 
-CollisionPoint doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, VoxelEntity *e, int idX, int idY, bool swap) {
-    CollisionPoint result;
-    result.x = -1;
-    result.y = -1;
 
+
+int doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, VoxelEntity *e, int idX, int idY, bool swap, CollisionPoint *points) {
     float2 localP = minus_float2(worldP, e->T.pos.xy);
     float2 center = make_float2(0.5f*e->worldBounds.x, 0.5f*e->worldBounds.y);
 
@@ -169,7 +192,7 @@ CollisionPoint doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, Voxel
         make_float2(1, -1), 
     };  
 
-    float smallestDistance = FLT_MAX;
+    int pointCount = 0;
 
     for(int i = 0; i < arrayCount(voxels); ++i) {
         float2 voxelSpace = plus_float2(make_float2(x, y), voxels[i]);
@@ -188,90 +211,140 @@ CollisionPoint doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, Voxel
 
             float distanceSqr = float2_dot(diff, diff);
 
-            if(distanceSqr < smallestDistance && distanceSqr <= VOXEL_SIZE_IN_METERS_SQR) {
-                smallestDistance = distanceSqr;
+            if(distanceSqr <= VOXEL_SIZE_IN_METERS_SQR) {
+                CollisionPoint result = {};
 
                 result.entityId = e->id;
                 result.x = idX;
                 result.y = idY;
+                e->data[testY*e->stride + testX] |= VOXEL_COLLIDING;
                 result.point = lerp_float2(worldP, voxelWorldP, 0.5f);
                 result.normal = normalize_float2(diff);
                 result.seperation = sqrt(distanceSqr) - VOXEL_SIZE_IN_METERS;
                 result.Pn = 0;
                 result.inverseMassNormal = 0;
                 result.velocityBias = 0;
+
+                assert(pointCount < MAX_CONTACT_POINTS_PER_PAIR);
+                if(pointCount < MAX_CONTACT_POINTS_PER_PAIR) {
+                    points[pointCount++] = result;
+                }
+
+
             }
         }
     }
 
-    return result;
+    return pointCount;
 }
+
+gjk_v2 modelSpaceToWorldSpaceGJK(VoxelEntity *e, float x, float y) {
+    float16 T = float16_angle_aroundZ(e->T.rotation.z);
+    float2 p = plus_float2(float16_transform(T, make_float4(x, y, 0, 1)).xy, e->T.pos.xy); 
+    return gjk_V2(p.x, p.y);
+}
+
+bool boundingBoxOverlapWithMargin(VoxelEntity *a, VoxelEntity *b, float margin) {
+    Rect2f aH = make_rect2f_center_dim(make_float2(0, 0), plus_float2(make_float2(margin, margin), a->worldBounds));
+    Rect2f bH = make_rect2f_center_dim(make_float2(0, 0), plus_float2(make_float2(margin, margin), b->worldBounds));
+
+    assert(a != b);
+
+    gjk_v2 pointsA[4] = { 
+        modelSpaceToWorldSpaceGJK(a, aH.minX, aH.minY), 
+        modelSpaceToWorldSpaceGJK(a, aH.minX, aH.maxY), 
+        modelSpaceToWorldSpaceGJK(a, aH.maxX, aH.maxY),  
+        modelSpaceToWorldSpaceGJK(a, aH.maxX, aH.minY), 
+    };
+
+    gjk_v2 pointsB[4] = { 
+        modelSpaceToWorldSpaceGJK(b, bH.minX, bH.minY), 
+        modelSpaceToWorldSpaceGJK(b, bH.minX, bH.maxY), 
+        modelSpaceToWorldSpaceGJK(b, bH.maxX, bH.maxY),  
+        modelSpaceToWorldSpaceGJK(b, bH.maxX, bH.minY), 
+    };
+
+    return gjk_objectsCollide(pointsA, 4, pointsB, 4);
+}
+
 
 void collideVoxelEntities(PhysicsWorld *physicsWorld, VoxelEntity *a, VoxelEntity *b) {
     int pointCount = 0;
     CollisionPoint points[MAX_CONTACT_POINTS_PER_PAIR];
 
-    //NOTE: Keep the order consistent with the order in the arbiter
-    if(a > b) {
-        VoxelEntity *temp = b;
-        b = a;
-        a = temp;
-    }
-    
-    //NOTE: Check corners with corners & edges first
-    for(int y = 0; y < a->pitch; y++) {
-        for(int x = 0; x < a->stride; x++) {
+    if(boundingBoxOverlapWithMargin(a, b, BOUNDING_BOX_MARGIN)) 
+    {
+        a->inBounds = true;
+        b->inBounds = true;
+
+        //NOTE: Keep the order consistent with the order in the arbiter
+        if(a > b) {
+            VoxelEntity *temp = b;
+            b = a;
+            a = temp;
+        }
+        
+        //NOTE: Check corners with corners & edges first
+        for(int i = 0; i < getArrayLength(a->corners); i++) {
+            float2 corner = a->corners[i];
+            int x = corner.x;
+            int y = corner.y;
             u8 byte = getByteFromVoxelEntity(a, x, y);
-            a->data[y*a->stride + x] &= ~(VOXEL_COLLIDING);
-            if(byte & VOXEL_CORNER) {
-                CollisionPoint p = doesVoxelCollide(physicsWorld, voxelToWorldP(a, x, y).xy, b, x, y, true);
+            
+            assert(byte & VOXEL_CORNER || byte & VOXEL_EDGE);
+            CollisionPoint pointsFound[MAX_CONTACT_POINTS_PER_PAIR];
+            int numPointsFound = doesVoxelCollide(physicsWorld, voxelToWorldP(a, x, y).xy, b, x, y, true, pointsFound);
 
-                if(p.x >= 0) {
-                    //NOTE: Wake up the entity 
-                    // wakeUpEntity(a);
-                    // wakeUpEntity(b);
-                    
-                    //NOTE: Found a point
-                    a->data[y*a->stride + x] |= VOXEL_COLLIDING;
+            if(numPointsFound > 0) {
+                //NOTE: Found a point
+                a->data[y*a->stride + x] |= VOXEL_COLLIDING;
+
+                for(int j = 0; j < numPointsFound; ++j) {
                     assert(pointCount < arrayCount(points));
                     if(pointCount < arrayCount(points)) {
-                        points[pointCount++] = p;
+                        points[pointCount++] = pointsFound[j];
                     }
                 }
             }
         }
-    }
 
-    //NOTE: Check corners with corners & edges first
-    for(int y = 0; y < b->pitch; y++) {
-        for(int x = 0; x < b->stride; x++) {
-            b->data[y*b->stride + x] &= ~(VOXEL_COLLIDING);
+        //NOTE: Check corners with corners & edges first
+        for(int i = 0; i < getArrayLength(b->corners); i++) {
+            float2 corner = b->corners[i];
+            int x = corner.x;
+            int y = corner.y;
             u8 byte = getByteFromVoxelEntity(b, x, y);
-            if(byte & VOXEL_CORNER) {
-                CollisionPoint p = doesVoxelCollide(physicsWorld, voxelToWorldP(b, x, y).xy, a, x, y, false);
+            
+            assert(byte & VOXEL_CORNER || byte & VOXEL_EDGE);
+            CollisionPoint pointsFound[MAX_CONTACT_POINTS_PER_PAIR];
+            int numPointsFound = doesVoxelCollide(physicsWorld, voxelToWorldP(b, x, y).xy, a, x, y, false, pointsFound);
 
-                if(p.x >= 0) {
-                    b->data[y*b->stride + x] |= VOXEL_COLLIDING;
-                    //NOTE: Wake up the entity 
-                    // wakeUpEntity(a);
-                    // wakeUpEntity(b);
-                    
-                    //NOTE: Found a point
+            if(numPointsFound > 0) {
+                //NOTE: Found a point
+                b->data[y*b->stride + x] |= VOXEL_COLLIDING;
+
+                for(int j = 0; j < numPointsFound; ++j) {
                     assert(pointCount < arrayCount(points));
                     if(pointCount < arrayCount(points)) {
-                        points[pointCount++] = p;
-
+                        points[pointCount++] = pointsFound[j];
                     }
                 }
             }
         }
-    }
 
-    mergePointsToArbiter(physicsWorld, points, pointCount, a, b);
+        mergePointsToArbiter(physicsWorld, points, pointCount, a, b);
+    }
 }
 
 
-void classifyPhysicsShape(VoxelEntity *e) {
+void classifyPhysicsShapeAndIntertia(VoxelEntity *e) {
+    float inertia = 0;
+    float massPerVoxel = (1.0f / e->inverseMass) / (float)e->occupiedCount;
+    if(e->corners) {
+        freeResizeArray(e->corners);
+    }
+    e->corners = initResizeArray(float2);
+
     for(int y = 0; y < e->pitch; y++) {
         for(int x = 0; x < e->stride; x++) {
             u8 flags = e->data[y*e->stride + x];
@@ -280,6 +353,9 @@ void classifyPhysicsShape(VoxelEntity *e) {
                 //NOTE: Clear flags
                 flags &= ~(VOXEL_CORNER | VOXEL_EDGE | VOXEL_INSIDE);
 
+                float2 modelP = getVoxelPositionInModelSpaceFromCenter(e, make_float2(x, y));
+                inertia += massPerVoxel*(modelP.x*modelP.x + modelP.y*modelP.y);
+
                 bool found = false;
                 //NOTE: Check whether corner
                 float2 corners[4] = {make_float2(1, 1), make_float2(-1, 1), make_float2(1, -1), make_float2(-1, -1)};
@@ -287,6 +363,8 @@ void classifyPhysicsShape(VoxelEntity *e) {
                     float2 corner = corners[i];
                     if(!isVoxelOccupied(e, x + corner.x, y + corner.y) && !isVoxelOccupied(e, x + corner.x, y) && !isVoxelOccupied(e, x, y + corner.y)) {
                         flags |= VOXEL_CORNER;
+                        float2 a = make_float2(x, y);
+                        pushArrayItem(&e->corners, a, float2);
                         found = true;
                     }
                 }   
@@ -295,6 +373,8 @@ void classifyPhysicsShape(VoxelEntity *e) {
                     //NOTE: Check whether edge
                     if(!isVoxelOccupied(e, x + 1, y) || !isVoxelOccupied(e, x - 1 , y) || !isVoxelOccupied(e, x, y + 1) || !isVoxelOccupied(e, x, y - 1)) {
                         flags |= VOXEL_EDGE;
+                        float2 a = make_float2(x, y);
+                        pushArrayItem(&e->corners, a, float2);
                         found = true;
                     }
                 }
@@ -307,6 +387,11 @@ void classifyPhysicsShape(VoxelEntity *e) {
             }
         }
     }
+
+    if(e->inverseMass != 0) {
+        e->invI = 1.0f / inertia;
+    }
+    
 }
 
 VoxelEntity createVoxelCircleEntity(float radius, float3 pos, float inverseMass, int randomStartUpID) {
@@ -319,11 +404,14 @@ VoxelEntity createVoxelCircleEntity(float radius, float3 pos, float inverseMass,
     
     result.friction = 0.2f;
     result.T.pos = pos;
+    
     result.inverseMass = inverseMass;
-    result.coefficientOfRestitution = 0.8f;
+    result.coefficientOfRestitution = 0.2f;
 
     float diameter = 2*radius;
     result.worldBounds = make_float2(diameter, diameter);
+
+    result.T.scale = make_float3(diameter, diameter, 0);
     
     int diameterInVoxels = round(diameter*VOXELS_PER_METER);
     int t = (int)(diameterInVoxels*diameterInVoxels);
@@ -331,6 +419,8 @@ VoxelEntity createVoxelCircleEntity(float radius, float3 pos, float inverseMass,
 
     result.stride = diameterInVoxels;
     result.pitch = diameterInVoxels;
+
+    result.occupiedCount = 0;
 
     float2 center = make_float2(radius, radius);
     for(int y = 0; y < result.pitch; y++) {
@@ -343,13 +433,14 @@ VoxelEntity createVoxelCircleEntity(float radius, float3 pos, float inverseMass,
 
             if(float2_magnitude(diff) <= radius) {
                 flags |= VOXEL_OCCUPIED;
+                result.occupiedCount++;
             } 
 
             result.data[y*result.stride + x] = flags;
         }
     }
 
-    classifyPhysicsShape(&result);
+    classifyPhysicsShapeAndIntertia(&result);
 
     return result;
 }
@@ -369,20 +460,24 @@ VoxelEntity createVoxelPlaneEntity(float length, float3 pos, float inverseMass, 
 
     result.worldBounds = make_float2(length, 30*VOXEL_SIZE_IN_METERS);
 
+    result.T.scale = make_float3(result.worldBounds.x, result.worldBounds.y, 0);
+
     result.stride = result.worldBounds.x*VOXELS_PER_METER;
     result.pitch = result.worldBounds.y*VOXELS_PER_METER;
 
     int areaInVoxels = result.stride*result.pitch;
     
     result.data = (u8 *)easyPlatform_allocateMemory(sizeof(u8)*areaInVoxels, EASY_PLATFORM_MEMORY_ZERO);
+    result.occupiedCount = 0;
 
     for(int y = 0; y < result.pitch; y++) {
         for(int x = 0; x < result.stride; x++) {
             result.data[y*result.stride + x] = VOXEL_OCCUPIED;
+            result.occupiedCount++;
         }
     }
 
-    classifyPhysicsShape(&result);
+    classifyPhysicsShapeAndIntertia(&result);
 
     return result;
 }
@@ -394,28 +489,31 @@ VoxelEntity createVoxelSquareEntity(float w, float h, float3 pos, float inverseM
 
     result.T.pos = pos;
     result.inverseMass = inverseMass;
-    result.coefficientOfRestitution = 0.9f;
+    result.coefficientOfRestitution = 0.2f;
     result.friction = 0.2f;
 
     result.sleepTimer = 0;
     result.asleep = false;
 
     result.worldBounds = make_float2(w, h);
+    result.T.scale = make_float3(result.worldBounds.x, result.worldBounds.y, 0);
 
     result.stride = result.worldBounds.x*VOXELS_PER_METER;
     result.pitch = result.worldBounds.y*VOXELS_PER_METER;
 
     int areaInVoxels = result.stride*result.pitch;
-    
+
+    result.occupiedCount = 0;
     result.data = (u8 *)easyPlatform_allocateMemory(sizeof(u8)*areaInVoxels, EASY_PLATFORM_MEMORY_ZERO);
 
     for(int y = 0; y < result.pitch; y++) {
         for(int x = 0; x < result.stride; x++) {
             result.data[y*result.stride + x] = VOXEL_OCCUPIED;
+            result.occupiedCount++;
         }
     }
 
-    classifyPhysicsShape(&result);
+    classifyPhysicsShapeAndIntertia(&result);
 
     return result;
 }

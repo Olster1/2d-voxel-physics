@@ -44,23 +44,48 @@ void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
     //NOTE: If positionCorrection correction is on
     // The bias factor is important because overly aggressive corrections (with a high bias factor) can cause instability or jittering in the simulation, while too small of a correction (with a low bias factor) may leave objects slightly penetrated.
 	// It strikes a balance between stability and realism, ensuring that objects resolve overlaps without visibly popping or jittering in the simulation.
-    float biasFactor = (world->positionCorrecting) ? 1.0f : 0.0f;
+    float biasFactor = (world->positionCorrecting) ? 0.2f : 0.0f;
 
     while(arb) {
-        float massCombined = arb->a->inverseMass + arb->b->inverseMass;
+        VoxelEntity *a = arb->a;
+        VoxelEntity *b = arb->b;
+
+        float massCombined = a->inverseMass + b->inverseMass;
 
         for(int i = 0; i < arb->pointsCount; i++) {
             CollisionPoint *p = &arb->points[i];
+            
+            //NOTE: The reason Baumgarte Stabilization is wrong is that it adds kinetic energy into the system 
+            //      so energy is not conserved. Instead we have a seperate impulse(momentum) that tries and seperates the 
+            //      position overlap. This way the velocities aren't contributing to contact normals. 
+            //      To do this we get rid of the velocityBias contributing to the velocity constraint solver and have a seperate
+            //      position constraint solver that tries and fixes the positions. 
 
+            // PGS_NGS: This is the PGS solver with a NGS position solver instead of Baumgarte Stabilization. NGS was a nice feature in Box2D because it meant that objects that start with overlap do not fly apart, instead they are pushed apart gently.
+            //NOTE: This is the Baumgarte Stabilization. This was upgraded to Nonlinear Gauss-Seidel (NGS) on box2d 1.0
             p->velocityBias = -biasFactor * MathMinf((p->seperation + allowedPenertration), 0) * inverseDt;
-            p->inverseMassNormal = 1.0f / float2_dot(p->normal, scale_float2(massCombined, p->normal));
+
+            float2 r1 = minus_float2(p->point, a->T.pos.xy);
+		    float2 r2 = minus_float2(p->point, b->T.pos.xy);
+
+            float rn1 = float2_dot(r1, p->normal);
+            float rn2 = float2_dot(r2, p->normal);
+            float kNormal = massCombined;
+            kNormal += a->invI * (float2_dot(r1, r1) - rn1 * rn1) + b->invI * (float2_dot(r2, r2) - rn2 * rn2);
+            p->inverseMassNormal = 1.0f / kNormal;
+
+            // p->inverseMassNormal = 1.0f / float2_dot(p->normal, scale_float2(massCombined, p->normal));
 
             if (world->accumulateImpulses) {
-                //NOTE: The longer this point is colliding the bigger the impulse is applied to it
+                //NOTE: The accumulated impulse here is a convergence of the 'true' impulse 
                 // Apply normal + friction impulse
                 float2 Pn = scale_float2(p->Pn, p->normal);
-                arb->a->dP.xy = minus_float2(arb->a->dP.xy, scale_float2(arb->a->inverseMass, Pn));
-                arb->b->dP.xy = plus_float2(arb->b->dP.xy, scale_float2(arb->b->inverseMass, Pn));
+
+                a->dP.xy = minus_float2(a->dP.xy, scale_float2(a->inverseMass, Pn));
+                a->dA -= a->invI * float2_cross(r1, Pn);
+
+                b->dP.xy = plus_float2(b->dP.xy, scale_float2(b->inverseMass, Pn));
+                b->dA += b->invI * float2_cross(r2, Pn);
             }
         }
 
@@ -69,53 +94,64 @@ void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
 }
 
 void updateAllArbiters(PhysicsWorld *world) {
+    const int iterationCount = 4;
+    
     Arbiter *arb = world->arbiters;
-
-    const int iterationCount = 10;
-
-    int arbCount = 0;
-
     while(arb) {
-        arbCount++;
-        for(int i = 0; i < iterationCount; i++) {
-            for(int i = 0; i < arb->pointsCount; i++) {
-                CollisionPoint *p = &arb->points[i];
+        VoxelEntity *a = arb->a;
+        VoxelEntity *b = arb->b;
+        for(int m = 0; m < iterationCount; m++) {
+        for(int i = 0; i < arb->pointsCount; i++) {
+            CollisionPoint *p = &arb->points[i];
 
-                float e = MathMaxf(arb->a->coefficientOfRestitution, arb->b->coefficientOfRestitution);
+            float e = MathMaxf(a->coefficientOfRestitution, b->coefficientOfRestitution);
 
-                const float2 velocityA = arb->a->dP.xy;
-                const float2 velocityB = arb->b->dP.xy;
+            const float2 velocityA = a->dP.xy;
+            const float2 velocityB = b->dP.xy;
 
-                float2 relativeAB = minus_float2(velocityB, velocityA);
+            //NOTE: Get the distance of the point from center of mass 
+            float2 r1 = minus_float2(p->point, a->T.pos.xy);
+            float2 r2 = minus_float2(p->point, b->T.pos.xy);
 
-                if(float2_dot(relativeAB, relativeAB) < (PHYSICS_RESTITUTION_VELOCITY_THRESHOLD_SQR)) {
-                    e = 0;
-                }
+            float2 dpPointA = plus_float2(velocityA, float2_cross_scalar(a->dA, r1));
+            float2 dpPointB = plus_float2(velocityB, float2_cross_scalar(b->dA, r2));
 
-                float vn = float2_dot(relativeAB, p->normal);
+            // Relative velocity at contact
+            float2 relativeAB = minus_float2(dpPointB, dpPointA);
 
-                //NOTE: This is the J calculation as in Chris Hecker's phsyics tutorials
-                float dPn = ((-(1 + e)*vn) + p->velocityBias) * p->inverseMassNormal;
+            // float2 relativeAB = minus_float2(velocityB, velocityA);
 
-                if(world->accumulateImpulses) {
-                    assert(p->Pn >= 0);
-                    float Pn0 = p->Pn; //NOTE: Impulse magnitude previous frame
-                    p->Pn = MathMaxf(Pn0 + dPn, 0.0f);
-                    dPn = p->Pn - Pn0;
-                    //NOTE: This allows impulses to go towards the collision points
-                } else {
-                    //NOTE: Moving towards the objects so remove velocities component that's contributing to them colliding more
-                    dPn = MathMaxf(dPn, 0.0f);
-                }
-
-                float2 Pn = scale_float2(dPn, p->normal);
-
-                arb->a->dP.xy = minus_float2(arb->a->dP.xy, scale_float2(arb->a->inverseMass, Pn));
-                arb->b->dP.xy = plus_float2(arb->b->dP.xy, scale_float2(arb->b->inverseMass, Pn));
+            if(float2_dot(relativeAB, relativeAB) < (PHYSICS_RESTITUTION_VELOCITY_THRESHOLD_SQR)) 
+            {
+                e = 0;
             }
+
+            float vn = float2_dot(relativeAB, p->normal);
+
+            //NOTE: This is the J calculation as in Chris Hecker's phsyics tutorials
+            float dPn = ((-(1 + e)*vn) + p->velocityBias) * p->inverseMassNormal;
+
+            if(world->accumulateImpulses) {
+                assert(p->Pn >= 0);
+                float Pn0 = p->Pn; //NOTE: Impulse magnitude previous frame
+                p->Pn = MathMaxf(Pn0 + dPn, 0.0f);
+                dPn = p->Pn - Pn0;
+                //NOTE: This allows impulses to go towards the collision points
+            } else {
+                //NOTE: Moving towards the objects so remove velocities component that's contributing to them colliding more
+                dPn = MathMaxf(dPn, 0.0f);
+            }
+
+            float2 Pn = scale_float2(dPn, p->normal);
+
+            a->dP.xy = minus_float2(arb->a->dP.xy, scale_float2(a->inverseMass, Pn));
+            b->dP.xy = plus_float2(arb->b->dP.xy, scale_float2(b->inverseMass, Pn));
+
+            a->dA -= a->invI * float2_cross(r1, Pn);
+            b->dA += b->invI * float2_cross(r2, Pn);
         }
-        
-        arb = arb->next;
+    }
+    arb = arb->next;
     }
 
 }

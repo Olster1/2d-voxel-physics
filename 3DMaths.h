@@ -133,6 +133,11 @@ struct float4
 			float x, y, z, w;
 		};
 		struct {
+			float2 xy;
+			float ignore1;	
+			float ignore2;	
+		};
+		struct {
 			float3 xyz;
 			float ignore;	
 		};
@@ -181,6 +186,26 @@ static float2 minus_float2(float2 a, float2 b) {
 static float float2_dot(float2 a, float2 b) {
 	return (a.x*b.x + a.y*b.y);
 }
+
+inline float float2_cross(float2 a, float2 b)
+{
+	return a.x * b.y - a.y * b.x;
+}
+
+inline float2 float2_cross_scalar(float2  a, float s)
+{
+	return make_float2(s * a.y, -s * a.x);
+}
+
+inline float2 float2_cross_scalar(float s, float2 a)
+{
+	return make_float2(-s * a.y, s * a.x);
+}
+
+inline float sqr_float(float a) {
+	return a * a;
+}
+
 
 static float2 float2_perp(float2 a) {
 	return make_float2(-a.y, a.x);
@@ -744,6 +769,10 @@ float2 getPlaneSize(float FOV_degrees, float aspectRatio_x_over_y) {
 	float r = t*aspectRatio_x_over_y; //plane's width
 
 	return make_float2(r, t);
+}
+
+float2 perp2d(float2 p) {
+	return make_float2(-p.y, p.x);
 }
 
 static float16 make_perspective_matrix_origin_center(float FOV_degrees, float nearClip, float farClip, float aspectRatio_x_over_y) {

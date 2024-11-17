@@ -1,8 +1,9 @@
 #define MAX_CUBES_PER_RENDER 150000000
-#define MAX_CIRCLES_PER_RENDER 32
+#define MAX_CIRCLES_PER_RENDER 500000
 #define MAX_RENDER_ITEMS_PER_INSTANCE 32
 #define MAX_WORLD_ITEMS_PER_INSTANCE 500000
 #define MAX_GLYPHS_PER_RENDER 50000
+#define MAX_LINES_PER_RENDER 50000
 
 struct AtlasAsset {
     char *name;
@@ -23,6 +24,16 @@ static unsigned int global_quadIndices[] = {
 };
 
 #define HALF_SIN_45 0.3535533906f
+
+static unsigned int global_lineIndicies[] = {
+    0, 1
+};
+
+static Vertex global_lineModelData[] = {
+    makeVertex(make_float3(-0.5f, 0, 0), make_float2(1, 1), make_float3(0, 0, 1)),
+    makeVertex(make_float3(0.5f, 0, 0), make_float2(0, 1), make_float3(0, 0, 1)),
+    
+};
 
 static VertexForChunk global_quadDataChunkData[] = {
     makeVertexForChunk(make_float3(0.5f, -0.5f, 0), make_float2(1, 1), make_float3(0, 0, 1)),
@@ -211,6 +222,9 @@ struct Renderer {
     int glyphCount; 
     InstanceDataWithRotation glyphData[MAX_GLYPHS_PER_RENDER];
 
+    int lineCount; 
+    InstanceDataWithRotation lineData[MAX_LINES_PER_RENDER];
+
     Shader blockShader;
     Shader blockGreedyShader;
     Shader blockPickupShader;
@@ -218,6 +232,7 @@ struct Renderer {
     Shader quadShader;
     Shader quadTextureShader;
     Shader fontTextureShader;
+    Shader lineShader;
     Shader skyboxShader;
     Shader blockColorShader;
     Shader blockSameTextureShader;
@@ -229,6 +244,7 @@ struct Renderer {
     ModelBuffer triangleModel;
     ModelBuffer avocadoModel;
     ModelBuffer blockModelSameTexture;
+    ModelBuffer lineModel;
 
     bool underWater;
 };
@@ -277,6 +293,23 @@ InstanceDataWithRotation *pushGlyphQuad_(Renderer *renderer, float3 worldP, floa
 
     return c;
 }
+
+InstanceDataWithRotation *pushLine(Renderer *renderer, float16 T, float4 color) {
+    InstanceDataWithRotation *c = 0;
+    if(renderer->lineCount < arrayCount(renderer->lineData)) {
+        c = &renderer->lineData[renderer->lineCount++];
+    } else {
+        assert(false);
+    }
+    
+    if(c) {
+        c->M = T;
+        c->color = color;
+    }
+
+    return c;
+}
+
 
 float2 getUVCoordForBlock(BlockType type) {
     float2 uv = make_float2(0, 0);
@@ -357,7 +390,7 @@ void pushColoredQuad(Renderer *renderer, float3 worldP, float2 scale, float4 col
 }
 
 void pushCircleOutline(Renderer *renderer, float3 worldP, float radius, float4 color) {
-    pushAtlasQuad_(renderer, worldP, make_float3(radius, radius, 1), make_float3(0, 0, 0), make_float4(0.5f, 1.0f, 0, 0.5f), color, true);
+    pushAtlasQuad_(renderer, worldP, make_float3(radius, radius, 1), make_float3(0, 0, 0), make_float4(0.5f, 1.0f, 0, 0.5f), color, false);
 }
 
 void pushFillCircle(Renderer *renderer, float3 worldP, float radius, float4 color) {

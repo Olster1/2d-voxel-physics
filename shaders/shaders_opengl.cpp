@@ -33,6 +33,40 @@ static char *blockPickupVertexShader =
    " uv_frag = vec2(texUV.x, mix(uvAtlas.x, uvAtlas.y, texUV.y));"
 "}";
 
+static char *lineVertexShader = 
+"#version 330\n"
+//per vertex variables
+"in vec3 vertex;"
+"in vec3 normal;"
+"in vec2 texUV;	"
+
+//per instanced variables
+"in mat4 M;"
+"in vec4 uvAtlas;"
+"in vec4 color;"
+
+//uniform variables
+"uniform mat4 V;"
+"uniform mat4 projection;"
+
+//outgoing variables
+"out vec4 color_frag;"
+
+"void main() {"
+    "mat4 MV = V * M;"
+    "gl_Position = projection * MV * vec4((vertex), 1);"
+    "color_frag = color;"
+"}";
+
+
+static char *lineFragShader = 
+"#version 330\n"
+"in vec4 color_frag;" 
+"out vec4 color;"
+"void main() {"
+    "color = color_frag;"
+"}";
+
 
 static char *skeletalVertexShader = 
 "#version 330\n"

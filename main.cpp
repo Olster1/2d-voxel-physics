@@ -18,6 +18,8 @@ static float global_fogSeeDistance;
 #include "./render.h"
 #include "./transform.cpp"
 #include "./animation.h"
+#define GJK_IMPLEMENTATION 1
+#include "./easy_gjk.h"
 #include "./entity.cpp"
 #include "./render.cpp"
 #include "./opengl.cpp"
@@ -40,6 +42,7 @@ Renderer *initRenderer(Texture grassTexture, Texture breakBlockTexture, Texture 
     renderer->blockGreedyShader = loadShader(blockGreedyVertexShader, blockFragShader);
     renderer->quadTextureShader = loadShader(quadVertexShader, quadTextureFragShader);
     renderer->fontTextureShader = loadShader(quadVertexShader, fontTextureFragShader);
+    renderer->lineShader = loadShader(lineVertexShader, lineFragShader);
 
     renderer->rayCastShader = loadShader(fullScreenVertexShader, rayCastFragShader);
     renderer->skyboxShader = loadShader(skyboxVertexShader, skyboxFragShader);
@@ -51,6 +54,7 @@ Renderer *initRenderer(Texture grassTexture, Texture breakBlockTexture, Texture 
     
     renderer->blockModel = generateVertexBuffer(global_cubeData, 24, global_cubeIndices, 36);
     renderer->quadModel = generateVertexBuffer(global_quadData, 4, global_quadIndices, 6, ATTRIB_INSTANCE_TYPE_MODEL_MATRIX);
+    renderer->lineModel = generateVertexBuffer(global_lineModelData, 2, global_lineIndicies, 2, ATTRIB_INSTANCE_TYPE_MODEL_MATRIX);
     renderer->blockModelWithInstancedT = generateVertexBuffer(global_cubeData, 24, global_cubeIndices, 36, ATTRIB_INSTANCE_TYPE_MODEL_MATRIX);
     renderer->blockModelSameTexture = generateVertexBuffer(global_cubeData_sameTexture, 24, global_cubeIndices, 36, ATTRIB_INSTANCE_TYPE_MODEL_MATRIX);
 
@@ -97,7 +101,7 @@ void updateGame(GameState *gameState) {
         perFrameArenaMark = takeMemoryMark(&globalPerFrameArena);
     }
 
-    // updateCamera(gameState);
+    updateCamera(gameState);
   
     float16 screenGuiT = make_ortho_matrix_origin_center(100, 100*gameState->aspectRatio_y_over_x, MATH_3D_NEAR_CLIP_PlANE, MATH_3D_FAR_CLIP_PlANE);
     float16 textGuiT = make_ortho_matrix_top_left_corner_y_down(100, 100*gameState->aspectRatio_y_over_x, MATH_3D_NEAR_CLIP_PlANE, MATH_3D_FAR_CLIP_PlANE);
@@ -111,13 +115,24 @@ void updateGame(GameState *gameState) {
 
     gameState->physicsAccum += gameState->dt;
 
-    float minStep = 0.01f;
+    float minStep = 1.0f / 120.0f;
 
     for(int i = 0; i < gameState->voxelEntityCount; ++i) {
         VoxelEntity *e = &gameState->voxelEntities[i];
         e->ddPForFrame = make_float3(0, 0, 0);
-        if(e->inverseMass > 0) {
+        e->ddAForFrame = 0;
+        if(e->inverseMass > 0 && e != gameState->grabbed) {
             e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
+            // e->ddAForFrame = 1;
+        }
+
+        e->inBounds = false;
+
+        //NOTE: Remove debug flags
+        for(int y = 0; y < e->pitch; y++) {
+            for(int x = 0; x < e->stride; x++) {
+                e->data[y*e->stride + x] &= ~(VOXEL_COLLIDING);
+            }
         }
     }
 
@@ -150,6 +165,7 @@ void updateGame(GameState *gameState) {
             VoxelEntity *e = &gameState->voxelEntities[i];
             
             e->dP = plus_float3(e->dP, scale_float3(dt, e->ddPForFrame));
+            e->dA = e->dA + dt*e->ddAForFrame;
 
             float size = float2_magnitude(e->dP.xy);
             
@@ -181,7 +197,7 @@ void updateGame(GameState *gameState) {
 
             // if(!e->asleep) 
             {
-                //NOTE: Object isn't asleep
+                e->T.rotation.z += dt * e->dA;
                 e->T.pos = plus_float3(e->T.pos, scale_float3(dt, e->dP));
             }
         }
@@ -192,6 +208,29 @@ void updateGame(GameState *gameState) {
     for(int i = 0; i < gameState->voxelEntityCount; ++i) {
         VoxelEntity *e = &gameState->voxelEntities[i];
 
+        TransformX TTemp = e->T;
+        TTemp.rotation.z = radiansToDegrees(TTemp.rotation.z);
+        //NOTE: Draw with colliding margin
+        TTemp.scale.xy = plus_float2(make_float2(BOUNDING_BOX_MARGIN, BOUNDING_BOX_MARGIN), e->worldBounds);
+        float16 A = getModelToViewSpace(TTemp);
+        float16 I = float16_identity();
+
+        float16 T0 =  float16_multiply(A, float16_set_pos(I, make_float3(0, -0.5f, 0)));
+        float16 T1 =  float16_multiply(A, float16_set_pos(I, make_float3(0, 0.5f, 0)));
+        float16 T2 =  float16_multiply(A, float16_set_pos(eulerAnglesToTransform(0, 0, 90), make_float3(-0.5f, 0, 0)));
+        float16 T3 =  float16_multiply(A, float16_set_pos(eulerAnglesToTransform(0, 0, 90), make_float3(0.5f, 0, 0)));
+        
+
+        //NOTE: Debug lines
+        float4 lineColor = make_float4(0, 0, 0, 1);
+        if(e->inBounds) {
+            lineColor.y = 1;
+        }
+        pushLine(gameState->renderer, T0, lineColor);
+        pushLine(gameState->renderer, T1, lineColor);
+        pushLine(gameState->renderer, T2, lineColor);
+        pushLine(gameState->renderer, T3, lineColor);
+
         for(int y = 0; y < e->pitch; ++y) {
             for(int x = 0; x < e->stride; ++x) {
                 u8 state = e->data[y*e->stride + x];
@@ -200,25 +239,39 @@ void updateGame(GameState *gameState) {
                 {
                     float4 color = make_float4(1, 0.5f, 0, 1);
                     if(state & VOXEL_COLLIDING) {
-                        color = make_float4(0, 0.5f, 1, 1);
-                    } else if(e->asleep) {
+                        color = make_float4(0, 0.5f, 0, 1);
+                    } else if(state & VOXEL_CORNER) {
                         color = make_float4(0, 0, 1, 1);
                     }
 
                     float3 p = voxelToWorldP(e, x, y);
                     pushColoredQuad(gameState->renderer, p, make_float2(VOXEL_SIZE_IN_METERS, VOXEL_SIZE_IN_METERS), color);
+                    // pushCircleOutline(gameState->renderer, p, VOXEL_SIZE_IN_METERS, color);
                 }
             }
         }
     }
+    {
+        float2 p = scale_float2(3.0f, getPlaneSize(gameState->camera.fov, 1.0f / gameState->aspectRatio_y_over_x));
+        float x = lerp(-p.x, p.x, make_lerpTValue(gameState->mouseP_01.x));
+        float y = lerp(-p.y, p.y, make_lerpTValue(1.0f + gameState->mouseP_01.y));
+
+         if(gameState->mouseLeftBtn == MOUSE_BUTTON_PRESSED && !gameState->grabbed) {
+        
+        // gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelCircleEntity(1, make_float3(x, y, 0), 1.0f / 1.0f, gameState->randomStartUpID);
+            gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelSquareEntity(1, 1, make_float3(x, y, 0), 1.0f / 1.0f, gameState->randomStartUpID);    
+        }
+
+        if(gameState->grabbed) {
+            gameState->grabbed->T.pos.x = x;
+            gameState->grabbed->T.pos.y = y;
+        }
+    }
+
+    
 
     TimeOfDayValues timeOfDayValues = getTimeOfDayValues(gameState);
     rendererFinish(gameState->renderer, screenT, cameraT, screenGuiT, textGuiT, lookingAxis, cameraTWithoutTranslation, timeOfDayValues, gameState->perlinTestTexture.handle);
 
-    if(gameState->mouseLeftBtn == MOUSE_BUTTON_PRESSED) {
-        float2 p = scale_float2(3.0f, getPlaneSize(gameState->camera.fov, 1.0f / gameState->aspectRatio_y_over_x));
-        float x = lerp(-p.x, p.x, make_lerpTValue(gameState->mouseP_01.x));
-        float y = lerp(-p.y, p.y, make_lerpTValue(1.0f + gameState->mouseP_01.y));
-        gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelCircleEntity(1, make_float3(x, y, 0), 1.0f / 1.0f, gameState->randomStartUpID);
-    }
+   
 }

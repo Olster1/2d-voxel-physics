@@ -44,6 +44,8 @@ enum MouseKeyState {
 enum KeyTypes {
   KEY_UP,
   KEY_DOWN,
+  KEY_E,
+  KEY_Q,
   KEY_LEFT,
   KEY_RIGHT,
   KEY_SPACE,
@@ -185,6 +187,8 @@ int main(int argc, char **argv) {
     const Uint8* currentKeyStates = SDL_GetKeyboardState( NULL );
     
     updateKeyState(gameState, KEY_UP, currentKeyStates[SDL_SCANCODE_UP] == 1 || currentKeyStates[SDL_SCANCODE_W] == 1);
+    updateKeyState(gameState, KEY_E, currentKeyStates[SDL_SCANCODE_E] == 1);
+    updateKeyState(gameState, KEY_Q, currentKeyStates[SDL_SCANCODE_Q] == 1);
     updateKeyState(gameState, KEY_DOWN, currentKeyStates[SDL_SCANCODE_DOWN] == 1 || currentKeyStates[SDL_SCANCODE_S] == 1);
     updateKeyState(gameState, KEY_LEFT, currentKeyStates[SDL_SCANCODE_LEFT] == 1 || currentKeyStates[SDL_SCANCODE_A] == 1);
     updateKeyState(gameState, KEY_RIGHT, currentKeyStates[SDL_SCANCODE_RIGHT] == 1 || currentKeyStates[SDL_SCANCODE_D] == 1);
