@@ -254,9 +254,10 @@ void initGameState(GameState *gameState) {
     srand(time(NULL));
     gameState->randomStartUpID = rand();
     gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelCircleEntity(1.0f, make_float3(0, 0, 0), 1.0f, gameState->randomStartUpID);
-    gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelPlaneEntity(100.0f, make_float3(0, -3, 0), 0, gameState->randomStartUpID);
     gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelSquareEntity(1, 1, make_float3(0, 2, 0), 1.0f, gameState->randomStartUpID);
-    // gameState->grabbed = &gameState->voxelEntities[2]; 
+    gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelSquareEntity(3, 3, make_float3(0, 4, 0), 1.0f, gameState->randomStartUpID);
+    gameState->voxelEntities[gameState->voxelEntityCount++] = createVoxelPlaneEntity(100.0f, make_float3(0, -3, 0), 0, gameState->randomStartUpID);
+    gameState->grabbed = &gameState->voxelEntities[2]; 
     
     assert(BLOCK_TYPE_COUNT < 255);
     gameState->camera.fov = 60;

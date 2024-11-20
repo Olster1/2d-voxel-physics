@@ -107,7 +107,7 @@ void updateGame(GameState *gameState) {
     float16 textGuiT = make_ortho_matrix_top_left_corner_y_down(100, 100*gameState->aspectRatio_y_over_x, MATH_3D_NEAR_CLIP_PlANE, MATH_3D_FAR_CLIP_PlANE);
 
     float16 screenT = make_perspective_matrix_origin_center(gameState->camera.fov, MATH_3D_NEAR_CLIP_PlANE, MATH_3D_FAR_CLIP_PlANE, 1.0f / gameState->aspectRatio_y_over_x);
-    float16 cameraT = getCameraX(gameState->camera.T);
+    float16 cameraT = transform_getInverseX(gameState->camera.T);
     float16 cameraTWithoutTranslation = getCameraX_withoutTranslation(gameState->camera.T);
 
     float16 rot = eulerAnglesToTransform(gameState->camera.T.rotation.y, gameState->camera.T.rotation.x, gameState->camera.T.rotation.z);
@@ -122,7 +122,7 @@ void updateGame(GameState *gameState) {
         e->ddPForFrame = make_float3(0, 0, 0);
         e->ddAForFrame = 0;
         if(e->inverseMass > 0 && e != gameState->grabbed) {
-            e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
+            // e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
             // e->ddAForFrame = 1;
         }
 
@@ -202,6 +202,9 @@ void updateGame(GameState *gameState) {
             }
         }
 
+        //NOTE: Apply position correction - NGS - Non-linear Gauss Seidel
+        // updateAllArbitersForPositionCorrection(&gameState->physicsWorld);
+
         gameState->physicsAccum -= minStep;
     }
 
@@ -241,11 +244,13 @@ void updateGame(GameState *gameState) {
                     if(state & VOXEL_COLLIDING) {
                         color = make_float4(0, 0.5f, 0, 1);
                     } else if(state & VOXEL_CORNER) {
-                        color = make_float4(0, 0, 1, 1);
+                        color = make_float4(1, 0, 1, 1);
+                    } else if(state & VOXEL_EDGE) {
+                        color = make_float4(0, 1, 1, 1);
                     }
 
-                    float3 p = voxelToWorldP(e, x, y);
-                    pushColoredQuad(gameState->renderer, p, make_float2(VOXEL_SIZE_IN_METERS, VOXEL_SIZE_IN_METERS), color);
+                    float2 p = voxelToWorldP(e, x, y);
+                    pushColoredQuad(gameState->renderer, make_float3(p.x, p.y, 0), make_float2(VOXEL_SIZE_IN_METERS, VOXEL_SIZE_IN_METERS), color);
                     // pushCircleOutline(gameState->renderer, p, VOXEL_SIZE_IN_METERS, color);
                 }
             }
@@ -265,6 +270,8 @@ void updateGame(GameState *gameState) {
         if(gameState->grabbed) {
             gameState->grabbed->T.pos.x = x;
             gameState->grabbed->T.pos.y = y;
+            // gameState->grabbed->T.rotation.z = 0;
+            gameState->grabbed->T.rotation.z += gameState->dt;
         }
     }
 

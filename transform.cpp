@@ -28,6 +28,15 @@ float16 getModelToViewSpace(TransformX T) {
     return i;
 }
 
+float16 getModelToViewSpaceWithoutScale(TransformX T) {
+    float16 i = float16_identity();
+
+    i = float16_multiply(eulerAnglesToTransform(T.rotation.y, T.rotation.x, T.rotation.z), i);
+    i = float16_set_pos(i, T.pos);
+
+    return i;
+}
+
 float16 getModelToViewSpace_extraRotationAboutZ(TransformX T, float rotation) {
     float16 i = float16_identity();
 
@@ -38,7 +47,7 @@ float16 getModelToViewSpace_extraRotationAboutZ(TransformX T, float rotation) {
     return i;
 }
 
-float16 getCameraX(TransformX T) {
+float16 transform_getInverseX(TransformX T) {
     float16 cameraT = float16_set_pos(float16_identity(), float3_negate(T.pos));
     float16 rotT = eulerAnglesToTransform(T.rotation.y, T.rotation.x, T.rotation.z);
     rotT = float16_transpose(rotT);

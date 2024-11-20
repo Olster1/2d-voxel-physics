@@ -5,6 +5,7 @@ struct CollisionPoint {
     float inverseMassNormal; //NOTE: The dividend of the J calculation. This is constant throughout the iterations
     float velocityBias; //NOTE: This is an added velocity to stop penetration along the collision normal
     float seperation; //NOTE: Negative if shapes are colliding. 
+    float2 seperationVector; 
     float Pn; //NOTE: Accumulated normal impulse
 
     //NOTE: Used for the id
@@ -35,6 +36,9 @@ struct PhysicsWorld {
 
     //NEXT: Add angular momentum in now
 };
+
+float findSeperationForShape(VoxelEntity *e, int startX, int startY, float2 startWorldP, float2 unitVector);
+float2 worldPToVoxelP(VoxelEntity *e, float2 worldP);
 
 void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
     Arbiter *arb = world->arbiters;
@@ -71,7 +75,10 @@ void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
             float rn1 = float2_dot(r1, p->normal);
             float rn2 = float2_dot(r2, p->normal);
             float kNormal = massCombined;
-            kNormal += a->invI * (float2_dot(r1, r1) - rn1 * rn1) + b->invI * (float2_dot(r2, r2) - rn2 * rn2);
+            kNormal += (a->invI * (float2_dot(r1, r1) - rn1 * rn1)) + (b->invI * (float2_dot(r2, r2) - rn2 * rn2));
+            if(kNormal == 0) {
+                kNormal = 1;
+            }
             p->inverseMassNormal = 1.0f / kNormal;
 
             // p->inverseMassNormal = 1.0f / float2_dot(p->normal, scale_float2(massCombined, p->normal));
@@ -93,14 +100,66 @@ void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
     }
 }
 
+void updateAllArbitersForPositionCorrection(PhysicsWorld *world) {
+    const int iterationCount = 10;
+    float slop = 0.005f;
+    float maxLinearCorrection = 0.2f;
+    Arbiter *arb = world->arbiters;
+    
+    for(int m = 0; m < iterationCount; m++) {
+        while(arb) {
+            VoxelEntity *a = arb->a;
+            VoxelEntity *b = arb->b;
+            for(int i = 0; i < arb->pointsCount; i++) {
+                CollisionPoint *p = &arb->points[i];
+
+                // // Current separation
+                // s2Vec2 d = s2Add(s2Sub(dcB, dcA), s2Sub(rB, rA));
+                // float separation = s2Dot(d, normal) + cp->adjustedSeparation;
+
+                float2 r1 = minus_float2(p->point, a->T.pos.xy);
+    		    float2 r2 = minus_float2(p->point, b->T.pos.xy);
+
+                float2 normal = p->normal;
+
+                //NOTE: Negative since incoming vector is position distance to seperation
+                // float separation = p->seperation;
+                float2 voxelP = worldPToVoxelP(b, p->point);
+                float separation = findSeperationForShape(b, voxelP.x, voxelP.y, p->point, p->normal); //NOTE: Just resolves the individual voxel
+
+                // Compute the effective mass.
+                float rnA = float2_cross(r1, normal);
+                float rnB = float2_cross(r2, normal);
+                float effectiveMass = a->inverseMass + b->inverseMass + a->invI * rnA * rnA + b->invI * rnB * rnB;
+
+                // // Prevent large corrections. Need to maintain a small overlap to avoid overshoot.
+                // // This improves stacking stability significantly.
+                float C = clamp(-maxLinearCorrection, 0.0f, separation + slop);
+
+                float positionImpulse = effectiveMass > 0.0f ? (-0.2f * C / effectiveMass) : 0.0f;
+
+                float2 impulseVector = scale_float2(positionImpulse, normal);
+
+                a->T.pos.xy = minus_float2(a->T.pos.xy, scale_float2(a->inverseMass, impulseVector));
+                a->T.rotation.z -= a->invI * float2_cross(r1, impulseVector);
+
+                b->T.pos.xy = plus_float2(b->T.pos.xy, scale_float2(b->inverseMass, impulseVector));
+                b->T.rotation.z += b->invI * float2_cross(r2, impulseVector);
+            }
+            arb = arb->next;
+        }
+    }
+}
+
 void updateAllArbiters(PhysicsWorld *world) {
-    const int iterationCount = 4;
+    const int iterationCount = 2;
     
     Arbiter *arb = world->arbiters;
-    while(arb) {
+    
+    for(int m = 0; m < iterationCount; m++) {
+        while(arb) {
         VoxelEntity *a = arb->a;
         VoxelEntity *b = arb->b;
-        for(int m = 0; m < iterationCount; m++) {
         for(int i = 0; i < arb->pointsCount; i++) {
             CollisionPoint *p = &arb->points[i];
 
@@ -118,7 +177,6 @@ void updateAllArbiters(PhysicsWorld *world) {
 
             // Relative velocity at contact
             float2 relativeAB = minus_float2(dpPointB, dpPointA);
-
             // float2 relativeAB = minus_float2(velocityB, velocityA);
 
             if(float2_dot(relativeAB, relativeAB) < (PHYSICS_RESTITUTION_VELOCITY_THRESHOLD_SQR)) 
@@ -150,8 +208,8 @@ void updateAllArbiters(PhysicsWorld *world) {
             a->dA -= a->invI * float2_cross(r1, Pn);
             b->dA += b->invI * float2_cross(r2, Pn);
         }
+        arb = arb->next;
     }
-    arb = arb->next;
     }
 
 }

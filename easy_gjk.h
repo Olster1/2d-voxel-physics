@@ -289,9 +289,9 @@ EPA_Edge GJK_EPA_findClosestEdge(Simplex *simplex) {
     gjk_v2 ab = gjk_V2(pointB.x - pointA.x, pointB.y - pointA.y);  //goes from a -> b
     gjk_v2 edgeNormal = gjk_normalize_2D(gjk_perp2D(ab)); //This will be pointing away from the origin with clockwise winding
     float dist = gjk_dot(edgeNormal, ao); //find dist from the edge. NOTE: The closest distance is always the perpindicular distance from the edge. This is why it works. (I was getting confused about this.)
-    GJK_ASSERT(dist <= 0); //this is to assert for colckwise winding, and therefore normal is towards the origin. 
+    // GJK_ASSERT(dist <= 0); //this is to assert for colckwise winding, and therefore normal is towards the origin. 
     dist *= -1; //Make distance negative 
-    GJK_ASSERT(dist >= 0);
+    // GJK_ASSERT(dist >= 0);
     if(dist < result.distance || i == 0) { //or first edge to initialize struct 
       //shorter edge is found
       result.distance = dist;

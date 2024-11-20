@@ -157,6 +157,16 @@ static float2 make_float2(float x0, float y0) {
 	return result;
 }
 
+//NOTE: This is a quaternion multiplication in 2d
+static inline float integrateRot2d(float rot, float omegah) {
+	float c = cos(rot);
+	float s = sin(rot);
+	float a = c - omegah * s;
+	float result = acos(a);
+	printf("%f\n", rot);
+	return result;
+}
+
 static float clamp(float min, float max, float value) {
 	if(value < min) { value = min; }
 	if(value > max) { value = max; }
