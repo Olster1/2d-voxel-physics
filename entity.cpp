@@ -297,7 +297,7 @@ int doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, VoxelEntity *e, 
         int testX = (int)voxelSpace.x;
         int testY = (int)voxelSpace.y;
 
-        if(isVoxelOccupied(e, testX, testY, VOXEL_INSIDE)) {
+        if(isVoxelOccupied(e, testX, testY)) {
             float2 voxelWorldP = voxelToWorldP(e, testX, testY);
             float2 diff = minus_float2(worldP, voxelWorldP);
 
@@ -395,17 +395,17 @@ void collideVoxelEntities(PhysicsWorld *physicsWorld, VoxelEntity *a, VoxelEntit
             CollisionPoint pointsFound[MAX_CONTACT_POINTS_PER_PAIR];
             int numPointsFound = doesVoxelCollide(physicsWorld, voxelToWorldP(a, x, y), b, x, y, true, pointsFound, a);
 
-            // if(numPointsFound > 0) {
-            //     //NOTE: Found a point
-            //     a->data[y*a->stride + x] |= VOXEL_COLLIDING;
+            if(numPointsFound > 0) {
+                //NOTE: Found a point
+                a->data[y*a->stride + x] |= VOXEL_COLLIDING;
 
-            //     for(int j = 0; j < numPointsFound; ++j) {
-            //         assert(pointCount < arrayCount(points));
-            //         if(pointCount < arrayCount(points)) {
-            //             points[pointCount++] = pointsFound[j];
-            //         }
-            //     }
-            // }
+                for(int j = 0; j < numPointsFound; ++j) {
+                    assert(pointCount < arrayCount(points));
+                    if(pointCount < arrayCount(points)) {
+                        points[pointCount++] = pointsFound[j];
+                    }
+                }
+            }
         }
 
         //NOTE: Check corners with corners & edges first
@@ -419,17 +419,17 @@ void collideVoxelEntities(PhysicsWorld *physicsWorld, VoxelEntity *a, VoxelEntit
             CollisionPoint pointsFound[MAX_CONTACT_POINTS_PER_PAIR];
             int numPointsFound = doesVoxelCollide(physicsWorld, voxelToWorldP(b, x, y), a, x, y, false, pointsFound, b);
 
-            // if(numPointsFound > 0) {
-            //     //NOTE: Found a point
-            //     b->data[y*b->stride + x] |= VOXEL_COLLIDING;
+            if(numPointsFound > 0) {
+                //NOTE: Found a point
+                b->data[y*b->stride + x] |= VOXEL_COLLIDING;
 
-            //     for(int j = 0; j < numPointsFound; ++j) {
-            //         assert(pointCount < arrayCount(points));
-            //         if(pointCount < arrayCount(points)) {
-            //             points[pointCount++] = pointsFound[j];
-            //         }
-            //     }
-            // }
+                for(int j = 0; j < numPointsFound; ++j) {
+                    assert(pointCount < arrayCount(points));
+                    if(pointCount < arrayCount(points)) {
+                        points[pointCount++] = pointsFound[j];
+                    }
+                }
+            }
         }
 
         mergePointsToArbiter(physicsWorld, points, pointCount, a, b);
@@ -474,7 +474,9 @@ void classifyPhysicsShapeAndIntertia(VoxelEntity *e) {
                     if(!isVoxelOccupied(e, x + 1, y) || !isVoxelOccupied(e, x - 1 , y) || !isVoxelOccupied(e, x, y + 1) || !isVoxelOccupied(e, x, y - 1)) {
                         flags |= VOXEL_EDGE;
                         float2 a = make_float2(x, y);
+                        #if USE_EDGES_FOR_COLLISION  
                         pushArrayItem(&e->corners, a, float2);
+                        #endif
                         found = true;
                     }
                 }
@@ -514,7 +516,7 @@ VoxelEntity createVoxelCircleEntity(float radius, float3 pos, float inverseMass,
     result.worldBounds = make_float2(diameter, diameter);
 
     result.T.scale = make_float3(diameter, diameter, 0);
-    result.T.rotation.z = 0.25f*PI32;
+    // result.T.rotation.z = 0.25f*PI32;
     
     int diameterInVoxels = round(diameter*VOXELS_PER_METER);
     int t = (int)(diameterInVoxels*diameterInVoxels);
@@ -597,7 +599,7 @@ VoxelEntity createVoxelSquareEntity(float w, float h, float3 pos, float inverseM
 
     result.sleepTimer = 0;
     result.asleep = false;
-    result.T.rotation.z = 0.25f*PI32;
+    // result.T.rotation.z = 0.25f*PI32;
 
     result.worldBounds = make_float2(w, h);
     result.T.scale = make_float3(result.worldBounds.x, result.worldBounds.y, 0);

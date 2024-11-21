@@ -90,6 +90,16 @@ TimeOfDayValues getTimeOfDayValues(GameState *gameState) {
     return result;
 }
 
+
+void updateAndDrawDebugCode(GameState *gameState) {
+    {
+        char s[255];
+        int charsRendered = sprintf (s, "Frame Rate: %dFPS", (int)(round((1.0f / gameState->dt))));
+        assert(charsRendered < arrayCount(s));
+        renderText(gameState->renderer, &gameState->mainFont, s, make_float2(10, 10 + 5), 0.1f);
+    }
+}
+
 void updateGame(GameState *gameState) {
     if(!gameState->inited) {
         globalLongTermArena = createArena(Kilobytes(200));
@@ -122,7 +132,7 @@ void updateGame(GameState *gameState) {
         e->ddPForFrame = make_float3(0, 0, 0);
         e->ddAForFrame = 0;
         if(e->inverseMass > 0 && e != gameState->grabbed) {
-            // e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
+            e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
             // e->ddAForFrame = 1;
         }
 
@@ -278,6 +288,7 @@ void updateGame(GameState *gameState) {
     
 
     TimeOfDayValues timeOfDayValues = getTimeOfDayValues(gameState);
+    updateAndDrawDebugCode(gameState);
     rendererFinish(gameState->renderer, screenT, cameraT, screenGuiT, textGuiT, lookingAxis, cameraTWithoutTranslation, timeOfDayValues, gameState->perlinTestTexture.handle);
 
    

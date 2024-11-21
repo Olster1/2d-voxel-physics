@@ -48,7 +48,7 @@ void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
     //NOTE: If positionCorrection correction is on
     // The bias factor is important because overly aggressive corrections (with a high bias factor) can cause instability or jittering in the simulation, while too small of a correction (with a low bias factor) may leave objects slightly penetrated.
 	// It strikes a balance between stability and realism, ensuring that objects resolve overlaps without visibly popping or jittering in the simulation.
-    float biasFactor = (world->positionCorrecting) ? 0.2f : 0.0f;
+    float biasFactor = (world->positionCorrecting) ? 0.1f : 0.0f;
 
     while(arb) {
         VoxelEntity *a = arb->a;
