@@ -313,6 +313,8 @@ int doesVoxelCollide(PhysicsWorld *physicsWorld, float2 worldP, VoxelEntity *e, 
                 result.entityId = e->id;
                 result.x = idX;
                 result.y = idY;
+                result.x1 = testX;
+                result.y1 = testY;
                 e->data[testY*e->stride + testX] |= VOXEL_COLLIDING;
                 result.point = lerp_float2(worldP, voxelWorldP, 0.5f);
                 

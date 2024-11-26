@@ -12,7 +12,12 @@ struct CollisionPoint {
     EntityID entityId;
     int x;
     int y;
+
+    int x1;
+    int y1;
 };
+
+float2 voxelToWorldP(VoxelEntity *e, int x, int y);
 
 struct Arbiter {
     VoxelEntity *a;
@@ -101,7 +106,7 @@ void prestepAllArbiters(PhysicsWorld *world, float inverseDt) {
 }
 
 void updateAllArbitersForPositionCorrection(PhysicsWorld *world) {
-    const int iterationCount = 10;
+    const int iterationCount = 4;
     float slop = 0.005f;
     float maxLinearCorrection = 0.2f;
     Arbiter *arb = world->arbiters;
@@ -113,19 +118,19 @@ void updateAllArbitersForPositionCorrection(PhysicsWorld *world) {
             for(int i = 0; i < arb->pointsCount; i++) {
                 CollisionPoint *p = &arb->points[i];
 
-                // // Current separation
-                // s2Vec2 d = s2Add(s2Sub(dcB, dcA), s2Sub(rB, rA));
-                // float separation = s2Dot(d, normal) + cp->adjustedSeparation;
-
                 float2 r1 = minus_float2(p->point, a->T.pos.xy);
     		    float2 r2 = minus_float2(p->point, b->T.pos.xy);
 
                 float2 normal = p->normal;
 
+                // // Current separation
+                // s2Vec2 d = s2Add(s2Sub(dcB, dcA), s2Sub(rB, rA));
+                // float separation = s2Dot(d, normal) + cp->adjustedSeparation;
+
                 //NOTE: Negative since incoming vector is position distance to seperation
-                // float separation = p->seperation;
-                float2 voxelP = worldPToVoxelP(b, p->point);
-                float separation = findSeperationForShape(b, voxelP.x, voxelP.y, p->point, p->normal); //NOTE: Just resolves the individual voxel
+                float2 voxelA = voxelToWorldP(a, p->x, p->y);
+                float2 voxelB = voxelToWorldP(b, p->x1, p->y1);
+                float separation = float2_magnitude(minus_float2(voxelB, voxelA)) - VOXEL_SIZE_IN_METERS;
 
                 // Compute the effective mass.
                 float rnA = float2_cross(r1, normal);
