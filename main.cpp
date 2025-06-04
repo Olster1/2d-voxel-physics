@@ -132,8 +132,8 @@ void updateGame(GameState *gameState) {
         e->ddPForFrame = make_float3(0, 0, 0);
         e->ddAForFrame = 0;
         if(e->inverseMass > 0 && e != gameState->grabbed) {
-            e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
-            // e->ddAForFrame = 1;
+            // e->ddPForFrame.y -= 10.0f; //NOTE: Gravity
+            e->ddAForFrame = 1;
         }
 
         e->inBounds = false;
